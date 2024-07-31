@@ -14,14 +14,14 @@ from albumentations.core.composition import Compose, OneOf
 from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
 from tqdm import tqdm
-from albumentations import RandomRotate90,Resize
+from albumentations import RandomRotate90, Resize, HorizontalFlip
 import archs
 import losses
 from dataset import Dataset
 from metrics import iou_score
 from utils import AverageMeter, str2bool
 from archs import UNext
-
+from monogenic import MonogenicNet
 
 ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
@@ -41,6 +41,7 @@ def parse_args():
     
     # model
     parser.add_argument('--arch', '-a', metavar='ARCH', default='UNext')
+    parser.add_argument('--monogenic', default=False, type=str2bool)
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
     parser.add_argument('--input_channels', default=3, type=int,
                         help='input channels')
@@ -218,11 +219,33 @@ def main():
     cudnn.benchmark = True
 
     # create model
-    model = archs.__dict__[config['arch']](config['num_classes'],
-                                           config['input_channels'],
-                                           config['deep_supervision'])
+    kwargs = {
+        "num_classes": config['num_classes'],
+        "input_channels": config['input_channels'],
+        "deep_supervision": config['deep_supervision']
+    }
 
+    model = archs.__dict__[config['arch']]
+
+    if config['monogenic']:
+        monogenic_kwargs = {
+            'nscale': 1,
+            'return_input': False,
+            'return_rgb': False,
+            'return_hsv': False,
+            'return_phase_orientation': False,
+        }
+
+        model = MonogenicNet(monogenic_kwargs, model, kwargs)
+    else:
+        model = model(**kwargs)
+        
     model = model.cuda()
+
+    # if torch.cuda.device_count() > 1:
+    #     print("Let's use", torch.cuda.device_count(), "GPUs!")
+    #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    #     model = nn.DataParallel(model)
 
     params = filter(lambda p: p.requires_grad, model.parameters())
     if config['optimizer'] == 'Adam':
@@ -255,7 +278,7 @@ def main():
 
     train_transform = Compose([
         RandomRotate90(),
-        transforms.Flip(),
+        HorizontalFlip(),
         Resize(config['input_h'], config['input_w']),
         transforms.Normalize(),
     ])
