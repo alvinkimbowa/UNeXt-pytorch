@@ -1,7 +1,6 @@
 # Install mmcv-full before install torch
-
-mmcv-full
 timm
 pandas
 matplotlib
 albumentations
+scikit-learn
